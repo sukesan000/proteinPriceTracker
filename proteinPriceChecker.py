@@ -6,15 +6,23 @@ import datetime as dt
 import requests
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
 import logging
 
-def main():
-    #ログの設定
-    logging.basicConfig(filename='', level=logging.INFO,
+#bitlyのトークン
+bitly_token = ""
+#lineトークン
+lineToken = ""
+
+#ログの設定
+logging.basicConfig(filename='', level=logging.INFO,
                     format='%(asctime)s %(levelname)s: %(message)s')
+
+def main():
     try:
         # Chromeドライバーを自動更新
-        driver = webdriver.Chrome(ChromeDriverManager().install())
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service)
 
         #DB接続
         dname = "product.db"
@@ -70,16 +78,18 @@ def main():
                 if pastPrice < minPrice:
                     minPrice = pastPrice
 
-            #lineトークン
-            lineToken = "TFJ7CPKMrVEcyjADCdMtrUVtGksidk4VPbIOTEmzbqr"
-
             # 現在の価格が最安値以下であれば、LINEに通知する
             if int(convertCurrentPrice) <= minPrice:
-                message = 'プロテインが最安値を更新しました！\n現在の価格：{}円\n過去3ヶ月の最安値：{}円\nURL:{}'.format(convertCurrentPrice, minPrice, url)
+                #URL短縮メソッド
+                url = bitly_shorten_url(url)
+                #product_idをもとに商品名を取得
+                product_name = product['product_name']
+                
+                message = '{}が最安値を更新しました！\n現在の価格：{}円\n過去3ヶ月の最安値：{}円\nURL:{}'.format(product_name, convertCurrentPrice, minPrice, url)
                 payload = {'message': message}
                 headers = {'Authorization': 'Bearer ' + lineToken}
                 requests.post('https://notify-api.line.me/api/notify', data=payload, headers=headers)
-                print("LINEに最安置の報告をしました！")
+                print("LINEに最安値の報告をしました！")
 
         # データベースをクローズ
         conn.close()
@@ -129,6 +139,19 @@ def delete_old_records(cur, product_id):
         cur.execute("DELETE FROM Prices WHERE id = (SELECT id FROM Prices WHERE product_id = ? ORDER BY id ASC LIMIT 1)", (product_id,))
         print("レコードを削除しました")
 
-
+#URL短縮
+def bitly_shorten_url(url):
+    headers = {'Authorization': f'Bearer {bitly_token}'}
+    params = {'long_url': url}
+    response = requests.post('https://api-ssl.bitly.com/v4/shorten', headers=headers, json=params)
+    if response.status_code == 200:
+        data = response.json()
+        short_url = data['link']
+        logging.info(f'Short URL: {short_url}')
+        return short_url
+    else:
+        logging.error(f'Error: {response.status_code} - {response.text}')
+        return url
+        
 if __name__ == "__main__":
     main()
